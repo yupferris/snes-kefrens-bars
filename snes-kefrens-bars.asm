@@ -73,15 +73,37 @@ entry:
     sep #$30 ; 8-bit a/x/y
     lda #$80 ; screen off, zero brightness
     sta $2100
+    ; Disable mosaic
+    stz $2106
     ; Clear scroll regs for bg 0
     stz $210d
     stz $210d
     stz $210e
     stz $210e
-    ; TODO :)
+    ; Enable BG0 for main screen
+    lda #$01
+    sta $212c
+    ; Disable all bg's for sub screen
+    stz $212d
+    ; Disable window masks
+    stz $2123
+    stz $2124
+    ; Clear blending regs
+    stz $2130
+    stz $2131
+    ; Clear screen setting reg
+    stz $2133
 
     ; Set graphics mode 0, tile size 8 for all bg's
     stz $2105
+
+    ; Ugly green background color
+    sep #$20 ; 8-bit a
+    stz $2121
+    lda #$e0
+    sta $2122
+    lda #$00
+    sta $2122
 
     ; Enable screen
     lda #$0f ; screen on, full brightness
@@ -100,13 +122,6 @@ mainloop:
 .section "vblank handler" semifree
 
 vblank_handler:
-    sep #$20 ; 8-bit a
-    stz $2121
-    lda #$e0
-    sta $2122
-    lda #$00
-    sta $2122
-
     rti
 
 .ends
