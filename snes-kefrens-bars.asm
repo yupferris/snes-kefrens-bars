@@ -105,7 +105,19 @@ entry:
     lda #$00
     sta $2122
 
+    ; Clear VRAM
+    stz $2115
+    rep #$30 ; 16-bit a/x/y
+    ldx #$0000
+    stx $2116
+clear_vram_loop:
+        stz $2118
+    inx
+    cpx #$8000
+    bne clear_vram_loop
+
     ; Enable screen
+    sep #$20 ; 8-bit a
     lda #$0f ; screen on, full brightness
     sta $2100
 
