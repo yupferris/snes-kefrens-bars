@@ -30,14 +30,14 @@
     cop empty_interrupt_handler
     brk empty_interrupt_handler
     abort empty_interrupt_handler
-    nmi empty_interrupt_handler
+    nmi vblank
     irq empty_interrupt_handler
 .endnativevector
 
 .snesemuvector
     cop empty_interrupt_handler
     abort empty_interrupt_handler
-    nmi vblank
+    nmi empty_interrupt_handler
     reset entry
     irqbrk empty_interrupt_handler
 .endemuvector
@@ -57,10 +57,11 @@ empty_interrupt_handler:
 
 .ramsection "vars" slot 1
 bar_pos db
-scroll_value db
 .ends
 
 .define ram_chars $0100
+.define scroll_hdma_table $1000
+.define vram_addr_data_hdma_table $1400
 
 .section "entry" semifree
 
@@ -83,11 +84,9 @@ entry:
     sta $2100
     ; Disable mosaic
     stz $2106
-    ; Clear scroll regs for bg 0
+    ; Clear horizontal scroll reg for bg 0
     stz $210d
     stz $210d
-    stz $210e
-    stz $210e
     ; Enable BG0 for main screen
     lda #$01
     sta $212c
@@ -104,7 +103,8 @@ entry:
 
     ; Set graphics mode 0, tile size 8 for all bg's
     sep #$20 ; 8-bit a
-    stz $2105
+    lda #$00
+    sta $2105
 
     ; Set background color
     sep #$30 ; 8-bit a/x/y
@@ -134,7 +134,7 @@ palette_loop:
     sta $210b
 
     ; Clear VRAM
-    /*sep #$20 ; 8-bit a
+    sep #$20 ; 8-bit a
     lda #$80
     sta $2115
     rep #$30 ; 16-bit a/x/y
@@ -144,7 +144,7 @@ clear_vram_loop:
         stz $2118
     inx
     cpx #$8000
-    bne clear_vram_loop*/
+    bne clear_vram_loop
 
     ; Load tile map
     ;  We want to display the first row of the first 32 tiles, so we'll just write 0-31 into the first row of the map
@@ -167,25 +167,34 @@ load_tile_loop:
     stz bar_pos
 
     ; Enable screen
+    sep #$20 ; 8-bit a
     lda #$0f ; screen on, full brightness
     sta $2100
 
-mainloop:
-    ; Wait for vblank
+    ; Enable NMI
     sep #$20 ; 8-bit a
-vlank_wait_loop:
-        lda $4212
-        and #$80
-    beq vlank_wait_loop
+    lda #$80
+    sta $4200
 
-    ; Prep vars/regs for stretch loop
+    ; Enable interrupts
+    cli
+
+mainloop:
+    wai
+    jmp mainloop
+
+.ends
+
+.section "vblank" semifree
+
+vblank:
+    ; Darken screen until we're done processing
+    lda #$08
+    sta $2100
+
+    ; Prep vars/regs
     sep #$30 ; 8-bit a, x, y
     inc bar_pos
-    lda #$ff
-    sta $210e
-    stz $210e
-    sta scroll_value
-    ;stz $2115
 
     ; Clear character data
     sep #$30 ; 8-bit a/x/y
@@ -199,97 +208,124 @@ clear_char_loop:
     ; Upload chars to VRAM
     ;  We'll want to clear the first two bytes of every 4th char. ram_chars stores each of these two-byte pairs consecutively, so we'll
     ;  upload them as single 16-bit writes with 64-byte address increments in between via DMA.
+    sep #$30 ; 8-bit a/x/y
     lda #$81
     sta $2115
 
-    lda #$01
-    sta $4300
-    lda #$18
-    sta $4301
-    lda #<ram_chars
-    sta $4302
-    lda #>ram_chars
-    sta $4303
-    stz $4304
     stz $2116
     stz $2117
-    lda #$20
-    sta $4305
-    stz $4306
 
     lda #$01
+    sta $4320
+    lda #$18
+    sta $4321
+    lda #<ram_chars
+    sta $4322
+    lda #>ram_chars
+    sta $4323
+    stz $4324
+    lda #$20
+    sta $4325
+    stz $4326
+
+    ; Enable DMA
+    lda #$04
     sta $420b
 
-    /*; Wait for scanline 0
-scanline_wait_loop:
-    lda $2137
-    lda $213d
-    tax
-    lda $213d
-    and #$01
-    bne scanline_wait_loop
-    cpx #0
-    bne scanline_wait_loop
+    ; Dummy write (TODO: Remove when HDMA writes work)
+    sep #$30 ; 8-bit a/x/y
+    lda #$81
+    sta $2115
 
-    ; Stretch loop
-    ldx #112;224
-stretch_loop:
-        ; TODO: Update char mem for this line, then wait until hblank
+    lda #$80
+    sta $2116
+    lda #$00
+    sta $2117
 
-        ; Wait until hblank
-hblank_wait_loop:
-            lda $4212
-            and #$40
-        beq hblank_wait_loop
+    lda #$aa
+    sta $2118
+    lda #$aa
+    sta $2119
 
-        txa
-        and #$0f
-        sta $2100
+    ; Set up VRAM addr/data HDMA channel
+    sep #$20 ; 8-bit a
+    lda #$04
+    sta $4300
+    lda #$16
+    sta $4301
+    lda #<vram_addr_data_hdma_table
+    sta $4302
+    lda #>vram_addr_data_hdma_table
+    sta $4303
+    stz $4304
 
-        ; Wait until partway through the scanline
-scanline_pos_loop:
-        lda $2137
-        lda $213c
-        tay
-        lda $213c
+    ; Set up scroll HDMA channel
+    sep #$20 ; 8-bit a
+    lda #$02
+    sta $4310
+    lda #$0e
+    sta $4311
+    lda #<scroll_hdma_table
+    sta $4312
+    lda #>scroll_hdma_table
+    sta $4313
+    stz $4314
+
+    ; Enable HDMA
+    lda #$03
+    sta $420c
+
+    ; Build scroll HDMA table
+    sep #$20 ; 8-bit a
+    rep #$10 ; 16-bit x/y
+    ldx #$0000
+    ldy #$00ff
+scroll_hdma_table_loop:
+        lda #$01
+        sta scroll_hdma_table, x
+        inx
+        rep #$20 ; 16-bit a
         tya
-        cmp #128
-        bcc scanline_pos_loop
+        sta scroll_hdma_table, x
+        inx
+        inx
+        dey
+        sep #$20 ; 8-bit a
+    cpx #(224 * 3)
+    bne scroll_hdma_table_loop
+    stz scroll_hdma_table, x
 
-        txa
-        and #$0f
-        sta $2100*/
+    ; Build VRAM addr/data HDMA table
+    sep #$20 ; 8-bit a
+    rep #$10 ; 16-bit x/y
+    ldx #$0000
+vram_addr_data_hdma_table_loop:
+        lda #$01
+        sta vram_addr_data_hdma_table, x
+        inx
+        rep #$20 ; 16-bit a
+        lda #$0000
+        sta vram_addr_data_hdma_table, x
+        inx
+        inx
+        rep #$20 ; 16-bit a
+        lda #$5555
+        sta vram_addr_data_hdma_table, x
+        inx
+        inx
+        sep #$20 ; 8-bit a
+    cpx #(224 * 5)
+    bne vram_addr_data_hdma_table_loop
+    stz vram_addr_data_hdma_table, x
 
-        /*lda scroll_value
-        sta $210e
-        stz $210e
-        dea
-        sta scroll_value
+    ; Reset screen brightness
+    sep #$20 ; 8-bit a
+    lda #$0f
+    sta $2100
 
-        lda bar_pos
-        tay
-        asl
-        asl
-        asl
-        sty $2100
-        sta $2116
-        stz $2117
-        lda #$aa
-        sta $2118
-        sta $2118
+    ; ACK interrupt
+    lda $4210
 
-        lda bar_pos
-        ina
-        and #$1f
-        sta bar_pos
-    dex
-    bne stretch_loop*/
-
-    jmp mainloop
-
-.ends
-
-.section "vblank" semifree
-vblank:
     rti
+
 .ends
