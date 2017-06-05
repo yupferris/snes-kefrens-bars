@@ -37,7 +37,7 @@
 .snesemuvector
     cop empty_interrupt_handler
     abort empty_interrupt_handler
-    nmi empty_interrupt_handler
+    nmi vblank
     reset entry
     irqbrk empty_interrupt_handler
 .endemuvector
@@ -54,6 +54,13 @@ empty_interrupt_handler:
     rti
 
 .ends
+
+.ramsection "vars" slot 1
+bar_pos db
+scroll_value db
+.ends
+
+.define ram_chars $0100
 
 .section "entry" semifree
 
@@ -127,11 +134,11 @@ palette_loop:
     sta $210b
 
     ; Clear VRAM
-    sep #$20 ; 8-bit a
+    /*sep #$20 ; 8-bit a
     lda #$80
     sta $2115
     rep #$30 ; 16-bit a/x/y
-    /*ldx #$0000
+    ldx #$0000
     stz $2116
 clear_vram_loop:
         stz $2118
@@ -141,14 +148,18 @@ clear_vram_loop:
 
     ; Load tile map
     ;  We want to display the first row of the first 32 tiles, so we'll just write 0-31 into the first row of the map
+    sep #$20 ; 8-bit a
+    lda #$80
+    sta $2115
     rep #$30 ; 16-bit a/x/y
     lda #$4000
     sta $2116
-    ldx #$0000
+    lda #$0000
 load_tile_loop:
-        stx $2118
-    inx
-    cpx #$0020
+        sta $2118
+    clc
+    adc #$04
+    cmp #$0040
     bne load_tile_loop
 
     ; Reset vars
@@ -160,27 +171,12 @@ load_tile_loop:
     sta $2100
 
 mainloop:
-    ; Wait for scanline 0
+    ; Wait for vblank
     sep #$20 ; 8-bit a
 vlank_wait_loop:
         lda $4212
         and #$80
     beq vlank_wait_loop
-
-    ; Clear character data
-    ;  We'll want to clear the first two bytes of each character
-    sep #$20 ; 8-bit a
-    lda #$80
-    sta $2115
-    rep #$30 ; 16-bit a/x/y
-    lda #$0000
-clear_char_loop:
-        sta $2116
-        stz $2118
-    clc
-    adc #$0008
-    cmp #$0100
-    bne clear_char_loop
 
     ; Prep vars/regs for stretch loop
     sep #$30 ; 8-bit a, x, y
@@ -191,7 +187,40 @@ clear_char_loop:
     sta scroll_value
     ;stz $2115
 
-    ; Wait for scanline 0
+    ; Clear character data
+    sep #$30 ; 8-bit a/x/y
+    ldx #$00
+clear_char_loop:
+        stz ram_chars, x
+    inx
+    cpx #$20
+    bne clear_char_loop
+
+    ; Upload chars to VRAM
+    ;  We'll want to clear the first two bytes of every 4th char. ram_chars stores each of these two-byte pairs consecutively, so we'll
+    ;  upload them as single 16-bit writes with 64-byte address increments in between via DMA.
+    lda #$81
+    sta $2115
+
+    lda #$01
+    sta $4300
+    lda #$18
+    sta $4301
+    lda #<ram_chars
+    sta $4302
+    lda #>ram_chars
+    sta $4303
+    stz $4304
+    stz $2116
+    stz $2117
+    lda #$20
+    sta $4305
+    stz $4306
+
+    lda #$01
+    sta $420b
+
+    /*; Wait for scanline 0
 scanline_wait_loop:
     lda $2137
     lda $213d
@@ -203,8 +232,20 @@ scanline_wait_loop:
     bne scanline_wait_loop
 
     ; Stretch loop
-    ldx #128;224
+    ldx #112;224
 stretch_loop:
+        ; TODO: Update char mem for this line, then wait until hblank
+
+        ; Wait until hblank
+hblank_wait_loop:
+            lda $4212
+            and #$40
+        beq hblank_wait_loop
+
+        txa
+        and #$0f
+        sta $2100
+
         ; Wait until partway through the scanline
 scanline_pos_loop:
         lda $2137
@@ -212,10 +253,14 @@ scanline_pos_loop:
         tay
         lda $213c
         tya
-        cmp #180
+        cmp #128
         bcc scanline_pos_loop
 
-        lda scroll_value
+        txa
+        and #$0f
+        sta $2100*/
+
+        /*lda scroll_value
         sta $210e
         stz $210e
         dea
@@ -231,34 +276,20 @@ scanline_pos_loop:
         stz $2117
         lda #$aa
         sta $2118
-        ;sta $2118
+        sta $2118
 
         lda bar_pos
         ina
         and #$1f
         sta bar_pos
     dex
-    bne stretch_loop
+    bne stretch_loop*/
 
     jmp mainloop
 
 .ends
 
-.ramsection "vars" slot 1
-bar_pos db
-scroll_value db
+.section "vblank" semifree
+vblank:
+    rti
 .ends
-
-;    lda $2137
-;    lda $213d
-;    cmp #112
-;    bcs irq_handler_ret
-;    lda $213d
-;    and #$01
-;    bne irq_handler_ret
-;        lda counter
-;        sta $210e
-;        stz $210e
-;        dea
-;        sta counter
-;irq_handler_ret:
