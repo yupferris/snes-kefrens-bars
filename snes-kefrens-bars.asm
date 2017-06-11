@@ -63,10 +63,14 @@ bar_tab_index_1_temp db
 bar_tab_index_2_temp db
 .ends
 
-.define scroll_hdma_table $0400
-.define cgram_addr_hdma_table $1000
-.define cgram_data_1_hdma_table $1400
-.define cgram_data_2_hdma_table $1800
+.define scroll_hdma_table $7e1000
+.define cgram_addr_hdma_table $7e1800
+.define cgram_data_1_hdma_table $7e2000
+.define cgram_data_2_hdma_table $7e2800
+.define cgram_data_3_hdma_table $7e3000
+.define cgram_data_4_hdma_table $7e3800
+
+.base $80
 
 .section "entry" semifree
 
@@ -85,7 +89,13 @@ entry:
 
     ; HW init
     sep #$30 ; 8-bit a/x/y
-    lda #$80 ; screen off, zero brightness
+    ; Bump up bus speed
+    lda #$01
+    sta $420d
+    ; Long jump to upper mirror (to get higher bus speed)
+    jml +
+    ; Screen off, zero brightness
++   lda #$80
     sta $2100
     ; Disable mosaic
     stz $2106
@@ -218,16 +228,19 @@ mainloop:
 .section "vblank" semifree
 
 vblank:
+    ; Long jump to upper mirror (to get higher bus speed)
+    jml +
     ; Darken screen until we're done processing
-    lda #$08
-    sta $2100
++   ;lda #$08
+    ;sta $2100
 
     ; Clear palette
     sep #$30 ; 8-bit a/x/y
     stz $2121
     ldx #$00
 palette_loop:
-        stz $2122
+        lda #$1f
+        sta $2122
         stz $2122
     inx
     bne palette_loop
@@ -254,7 +267,8 @@ palette_loop:
     sta $4302
     lda #>scroll_hdma_table
     sta $4303
-    stz $4304
+    lda #$7e
+    sta $4304
 
     ; Set up CGRAM addr HDMA table
     sep #$20 ; 8-bit a
@@ -266,7 +280,8 @@ palette_loop:
     sta $4312
     lda #>cgram_addr_hdma_table
     sta $4313
-    stz $4314
+    lda #$7e
+    sta $4314
 
     ; Set up CGRAM data 1 HDMA table
     sep #$20 ; 8-bit a
@@ -278,7 +293,8 @@ palette_loop:
     sta $4322
     lda #>cgram_data_1_hdma_table
     sta $4323
-    stz $4324
+    lda #$7e
+    sta $4324
 
     ; Set up CGRAM data 2 HDMA table
     sep #$20 ; 8-bit a
@@ -290,10 +306,37 @@ palette_loop:
     sta $4332
     lda #>cgram_data_2_hdma_table
     sta $4333
-    stz $4334
+    lda #$7e
+    sta $4334
+
+    ; Set up CGRAM data 3 HDMA table
+    sep #$20 ; 8-bit a
+    lda #$02
+    sta $4340
+    lda #$22
+    sta $4341
+    lda #<cgram_data_3_hdma_table
+    sta $4342
+    lda #>cgram_data_3_hdma_table
+    sta $4343
+    lda #$7e
+    sta $4344
+
+    ; Set up CGRAM data 4 HDMA table
+    sep #$20 ; 8-bit a
+    lda #$02
+    sta $4350
+    lda #$22
+    sta $4351
+    lda #<cgram_data_4_hdma_table
+    sta $4352
+    lda #>cgram_data_4_hdma_table
+    sta $4353
+    lda #$7e
+    sta $4354
 
     ; Enable HDMA
-    lda #$0f
+    lda #$3f
     sta $420c
 
     ; Build scroll HDMA table
@@ -314,7 +357,8 @@ scroll_hdma_table_loop:
         sep #$20 ; 8-bit a
     cpx #(224 * 3)
     bne scroll_hdma_table_loop
-    stz scroll_hdma_table, x
+    lda #$00
+    sta scroll_hdma_table, x
 
     ; Build CGRAM addr HDMA table
     sep #$30 ; 8-bit a/x/y
@@ -348,9 +392,10 @@ cgram_addr_hdma_table_loop:
         sta bar_tab_index_2_temp
     cpx #(224 * 2)
     bne cgram_addr_hdma_table_loop
-    stz cgram_addr_hdma_table, x
+    lda #$00
+    sta cgram_addr_hdma_table, x
 
-    ; Build CGRAM data 1 HDMA table
+    ; Build CGRAM data HDMA tables
     sep #$20 ; 8-bit a
     rep #$10 ; 16-bit x/y
     ldx #$0000
@@ -359,37 +404,71 @@ cgram_data_1_hdma_table_loop:
         sta cgram_data_1_hdma_table, x
         inx
         rep #$20 ; 16-bit a
-        lda #$4210
+        lda #$2108
         sta cgram_data_1_hdma_table, x
         inx
         inx
         sep #$20 ; 8-bit a
     cpx #(224 * 3)
     bne cgram_data_1_hdma_table_loop
-    stz cgram_data_1_hdma_table, x
+    lda #$00
+    sta cgram_data_1_hdma_table, x
 
     ; Build CGRAM data 2 HDMA table
-    sep #$20 ; 8-bit a
-    rep #$10 ; 16-bit x/y
     ldx #$0000
 cgram_data_2_hdma_table_loop:
         lda #$01
         sta cgram_data_2_hdma_table, x
         inx
         rep #$20 ; 16-bit a
-        lda #$7fff
+        lda #$4210
         sta cgram_data_2_hdma_table, x
         inx
         inx
         sep #$20 ; 8-bit a
     cpx #(224 * 3)
     bne cgram_data_2_hdma_table_loop
-    stz cgram_data_2_hdma_table, x
+    lda #$00
+    sta cgram_data_2_hdma_table, x
+
+    ; Build CGRAM data 3 HDMA table
+    ldx #$0000
+cgram_data_3_hdma_table_loop:
+        lda #$01
+        sta cgram_data_3_hdma_table, x
+        inx
+        rep #$20 ; 16-bit a
+        lda #$7fff
+        sta cgram_data_3_hdma_table, x
+        inx
+        inx
+        sep #$20 ; 8-bit a
+    cpx #(224 * 3)
+    bne cgram_data_3_hdma_table_loop
+    lda #$00
+    sta cgram_data_3_hdma_table, x
+
+    ; Build CGRAM data 4 HDMA table
+    ldx #$0000
+cgram_data_4_hdma_table_loop:
+        lda #$01
+        sta cgram_data_4_hdma_table, x
+        inx
+        rep #$20 ; 16-bit a
+        lda #$6318
+        sta cgram_data_4_hdma_table, x
+        inx
+        inx
+        sep #$20 ; 8-bit a
+    cpx #(224 * 3)
+    bne cgram_data_4_hdma_table_loop
+    lda #$00
+    sta cgram_data_4_hdma_table, x
 
     ; Reset screen brightness
     sep #$20 ; 8-bit a
-    lda #$0f
-    sta $2100
+    ;lda #$0f
+    ;sta $2100
 
     ; ACK interrupt
     lda $4210
