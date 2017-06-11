@@ -12,9 +12,9 @@ This is a basic implementation of the classic "kefrens bars" effect (yes, I know
 
 ## implementation
 
-This implementation works by displaying a single scanline for the entire screen by modifying BG0's y-scroll reg during hblank. This scanline is set up in mode7 (mostly for convenience) so that we get 8bit color. Each of the 256 pixels on the scanline corresponds to one of the 256 colors in CGRAM. By writing into CGRAM each scanline, we can "draw" additional bars as the raster scans the screen, thus achieving the effect.
+This implementation works by displaying a single pixel row for the entire screen by modifying BG0's y-scroll reg during hblank. This pixel row is set up in mode7 (mostly for convenience) so that we get 8bit color, and each of the 256 pixels on the line corresponds to one of the 256 colors in CGRAM. By writing into CGRAM each scanline, we can "draw" additional bars as the raster scans the screen, thus achieving the effect.
 
-It runs in 3.58mhz mode and spends most of its frame time building HDMA tables. It uses one HDMA table to modify BG0's y-scroll, one HDMA table to write to the CGRAM port address reg, and 4 additional channels to write colors into CGRAM. It's totally unoptimized, but fairly minimal, so the code should be pretty understandable.
+It runs in 3.58mhz mode and spends a fair amount of frame time building one of the HDMA tables. It uses one HDMA channel to modify BG0's y-scroll, another channel to write to the CGRAM port address reg (this is the table that's rebuilt each frame), and 4 additional channels to write colors into CGRAM. It's totally unoptimized, but fairly minimal, so the code should be pretty understandable.
 
 ## videos
 
