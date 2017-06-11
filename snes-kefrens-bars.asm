@@ -56,8 +56,11 @@ empty_interrupt_handler:
 .ends
 
 .ramsection "vars" slot 1
-bar_pos db
-bar_pos_temp db
+bar_tab_index_1 db
+bar_tab_index_2 db
+
+bar_tab_index_1_temp db
+bar_tab_index_2_temp db
 .ends
 
 .define scroll_hdma_table $0400
@@ -190,7 +193,8 @@ tile_data_loop:
 
     ; Reset vars
     sep #$20 ; 8-bit a
-    stz bar_pos
+    stz bar_tab_index_1
+    stz bar_tab_index_2
 
     ; Enable screen
     sep #$20 ; 8-bit a
@@ -230,9 +234,15 @@ palette_loop:
 
     ; Prep vars/regs
     sep #$30 ; 8-bit a, x, y
-    lda bar_pos
-    sta bar_pos_temp
-    inc bar_pos
+    dec bar_tab_index_1
+    lda bar_tab_index_1
+    sta bar_tab_index_1_temp
+
+    lda bar_tab_index_2
+    clc
+    adc #$03
+    sta bar_tab_index_2
+    sta bar_tab_index_2_temp
 
     ; Set up scroll HDMA channel
     sep #$20 ; 8-bit a
@@ -307,19 +317,35 @@ scroll_hdma_table_loop:
     stz scroll_hdma_table, x
 
     ; Build CGRAM addr HDMA table
-    sep #$20 ; 8-bit a
+    sep #$30 ; 8-bit a/x/y
     rep #$10 ; 16-bit x/y
     ldx #$0000
 cgram_addr_hdma_table_loop:
         lda #$01
         sta cgram_addr_hdma_table, x
         inx
-        lda bar_pos_temp
+        phx
+        sep #$10 ; 8-bit x/y
+        ldy bar_tab_index_2_temp
+        lda sintab, y
+        asl ; Place sign into carry
+        lda sintab, y
+        ror
+        ldy bar_tab_index_1_temp
+        clc
+        adc sintab, y
+        clc
+        adc #$80
+        rep #$10 ; 16-bit x/y
+        plx
         sta cgram_addr_hdma_table, x
-        inc bar_pos_temp
-        inc bar_pos_temp
-        inc bar_pos_temp
         inx
+
+        inc bar_tab_index_1_temp
+        lda bar_tab_index_2_temp
+        clc
+        adc #$03
+        sta bar_tab_index_2_temp
     cpx #(224 * 2)
     bne cgram_addr_hdma_table_loop
     stz cgram_addr_hdma_table, x
@@ -369,5 +395,12 @@ cgram_data_2_hdma_table_loop:
     lda $4210
 
     rti
+
+.ends
+
+.section "sin tab" semifree
+
+sintab:
+.incbin "tab.bin"
 
 .ends
